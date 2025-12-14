@@ -42,6 +42,9 @@ def rate_limit(ip: str):
     hits.append(now)
     RATE_LIMIT[ip] = hits
 
+@app.get("/health")
+def health():
+    return {"ok": True}
 
 @app.get("/payload")
 async def payload(
@@ -68,3 +71,4 @@ end
 """.strip()
         }
     )
+
