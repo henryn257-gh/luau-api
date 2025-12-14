@@ -1,69 +1,42 @@
-import os
-import time
-import hashlib
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+const express = require('express');
+const crypto = require('crypto');
+const app = express();
 
-app = FastAPI()
+app.disable('x-powered-by');
+app.use(express.json({ limit: '10kb' }));
 
-API_KEY = os.environ["API_KEY"]
-MAX_TIME_DRIFT = int(os.getenv("MAX_TIME_DRIFT", "30"))
-RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "20"))
-RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "10"))
+const API_KEY = process.env.API_KEY || 'Render:Luau.api';
 
-RATE_LIMIT = {}
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
+let cachedPayload = null;
+let cacheTime = 0;
+const CACHE_TTL = 300000;
 
-def verify_request(api_key: str, timestamp: str, signature: str):
-    if api_key != API_KEY:
-        raise HTTPException(status_code=401)
+app.get('/payload', (req, res) => {
+  const { 'x-api-key': key, 'x-timestamp': ts, 'x-signature': sig } = req.headers;
+  
+  if (key !== API_KEY) return res.status(401).end();
+  
+  const expected = crypto.createHash('sha256')
+    .update(API_KEY + ts)
+    .digest('hex');
+    
+  if (sig !== expected) return res.status(401).end();
+  
+  if (cachedPayload && Date.now() - cacheTime < CACHE_TTL) {
+    return res.json(cachedPayload);
+  }
+  
+  cachedPayload = {
+    language: 'luau',
+    code: 'print("Hello from Render!")'
+  };
+  cacheTime = Date.now();
+  
+  res.json(cachedPayload);
+});
 
-    try:
-        ts = int(timestamp)
-    except ValueError:
-        raise HTTPException(status_code=400)
-
-    if abs(time.time() - ts) > MAX_TIME_DRIFT:
-        raise HTTPException(status_code=401)
-
-    expected = hashlib.sha256(f"{API_KEY}{timestamp}".encode()).hexdigest()
-    if signature != expected:
-        raise HTTPException(status_code=401)
-
-
-def rate_limit(ip: str):
-    now = time.time()
-    hits = RATE_LIMIT.get(ip, [])
-    hits = [t for t in hits if now - t < RATE_LIMIT_WINDOW]
-
-    if len(hits) >= RATE_LIMIT_MAX:
-        raise HTTPException(status_code=429)
-
-    hits.append(now)
-    RATE_LIMIT[ip] = hits
-
-@app.get("/health")
-def health():
-    return {"ok": True}
-
-@app.get("/payload")
-async def payload(
-    request: Request,
-    x_api_key: str = Header(...),
-    x_timestamp: str = Header(...),
-    x_signature: str = Header(...)
-):
-    rate_limit(request.client.host)
-    verify_request(x_api_key, x_timestamp, x_signature)
-
-    return JSONResponse(
-        content={
-            "language": "luau",
-            "code": """
-print("Working!!!!!!!")
-game.Workspace.Baseplate:Destroy
-""".strip()
-        }
-    )
-
-
+app.listen(process.env.PORT || 3000);
